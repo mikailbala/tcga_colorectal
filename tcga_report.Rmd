@@ -1,0 +1,799 @@
+---
+title: "TCGA_Report"
+author: "Mikail Bala"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+# Background
+
+PI: Dr. Vasily Yakovlev <br />
+Contact: <vasily.yakovlev@vcuhealth.org>  <br />
+  <br />
+
+The PI is interested in exploratory analysis and would like to find some signature or prediction biomarker \
+that could help predict the survival rate. The initial focus is on the Differential Expression analysis of \
+the RNAseq data from the TCGA Database and the aim is to identify all statistically significant differences
+between the two groups highlighted below. The samples are Human \
+from the colo-rectal patients of the TCGA database with two locations; Rectum and Left colon. 
+
+This report presents the differential expression analysis of colon and rectum cancer datasets. The STAR \
+Counts were downloaded and the analysis was performed using DESeq2 package. Finally, the results were \
+visualized through various plots, including a volcano plot and a heatmap.
+
+**Sample info:**  \
+the READ (rectum) cohort: 172 unique case submitter IDs  \
+the COAD (colon) cohort: 461 unique case submitter IDs further stratified into sub-localizations\
+localization 'descending colon',  \
+localization 'sigmoid colon',  \
+localization 'splenic flexure'  \
+ <br />
+Analysis includes pre-processing of the TCGA data, Principal Component Analysis (PCA), Differential Gene \
+Expression Analysis, visualizations and a survival plot for the two cohorts of interest.   
+  <br />
+
+## Data Preparation
+### Data Download
+From the TCGA database; the READ (rectum) cohort and the COAD (colon) cohorts were stratified. The PI would \
+like to compare the "rectum" group with the "left colon" group which includes localizations \
+'descending colon', 'sigmoid colon', and 'splenic flexure'. The data included gene expression \
+quantification with STAR counts.
+
+### Data Preprocessing
+The data underwent pre-processing to prepare the data for downstream analysis, inluding data \
+wrangling, and data normalization. This step included variance stabilizing transformation (vst) \
+and Deseq2 package normalization to ensure data comparability across samples.
+
+## Visualization
+
+### PCA plot
+
+Several PCA plots were generated to visualize the variation in the data. Samples that are similar \
+to each other will cluster together in the PCA plot. PCA transforms a large set of variables into a \
+smaller one that still contains most of the information in the large set. It does this by identifying \
+the directions (principal components) in which the data varies the most. The data was first normalized (vst) \
+so that the variance becomes independent of the mean. The axes of a PCA plot represent the principal \
+components. Typically, the first two principal components (PC1 and PC2) are plotted, as they capture the \
+most variance. Additionally, a 3D PCA plot was also produced to visualize the data with the \
+third Principal Component.
+
+### Volcano Plot
+A volcano plot was generated to visualize the differential expression results. This plot displays
+-> Log2 Fold Change (x-axis): Indicates the magnitude of expression change between colon and rectum samples.
+-> -Log10 Adjusted p-value (y-axis): Represents the statistical significance of the expression change.
+-> Significance Thresholds: Horizontal and vertical lines on the plot indicate thresholds for significance \
+and fold change, helping to highlight the most differentially expressed genes.
+
+### Heatmap
+A heatmap was created to show the expression levels of the top differentially expressed genes. Key features \
+of the heatmap include
+-> Expression Patterns: It visualizes the expression patterns of these genes across samples, facilitating the \
+identification of clusters or patterns in gene expression.
+-> Clustering: Both genes and samples are clustered to reveal similarities and differences in expression profiles.
+
+# Code Release Statement
+
+This R Markdown file contains code for analyzing TCGA data and to perform PCA analysis, \
+Differential Gene Expression Analysis, and other bioinformatics visualization. The code provided is released \
+under the MIT License and is intended for use in research and educational projects.
+
+**MIT License**
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and \
+associated documentation files (the "Software"), to deal in the Software without restriction, including \
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell \
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the \
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial \
+portions of the Software.
+
+**Disclaimer:**  
+The software is provided "as is", without warranty of any kind, express or implied, including \
+but not limited to the warranties of merchantability, fitness for a particular purpose, and \
+non-infringement. In no event shall the authors or copyright holders be liable for any claim, \
+damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, \
+or in connection with the software or the use or other dealings in the software.
+
+**Publication Policy**
+
+As part of our commitment to transparency and scientific collaboration, our bioinformatics services core \
+releases code and methods upon project completion. For generated code, we maintain a private GitHub \
+repository during project execution where investigators and collaborating students can contribute. \
+Methods are written throughout the project lifecycle and are part of our core's deliverables. Upon \
+publication, the repository becomes public and is released under an open-source license, \
+ensuring that others can build upon and benefit from our work, with the exception of code handling sensitive data.
+
+Our core adheres to strict data security practices. Any code handling sensitive or confidential data undergoes \
+rigorous review to ensure compliance with privacy regulations and may or may not be publicly \
+released according to VCU's data security and privacy policies.
+
+We require that any results obtained from code generated during our collaboration include a citation to the \
+GitHub repository, acknowledging the contributions of our analysts. Additionally, the BISR and its source of \
+funding, the CCSG grant, must be included in the acknowledgment and funding sections of manuscripts.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+if (!require("pacman"))
+  install.packages("pacman")
+pacman::p_load(here, dplyr, tidyverse, janitor, scales, plotly, 
+               ggrepel, enrichplot, tidyverse, readr, DT, DESeq2, ggplot2,
+               RNASeqBits, "org.Hs.eg.db", gplots, RColorBrewer, conflicted, TCGAbiolinks, conflicted, DT,
+               plotly, stats, reticulate, ComplexHeatmap)
+
+py_install("kaleido", "plotly")
+py_module_available("kaleido")
+py_module_available("plotly")
+```
+
+```{r load_data, include=FALSE}
+# define the path to the TSV file
+colonData_path <- "./clinical.project-tcga-coad.2024-05-14/clinical_tcga_Colon.tsv"
+rectalData_path <- "./clinical.project-tcga-read.2024-05-14/clinical_tcga_Rectum.tsv"
+
+# load tsv data
+colon_tsv_data <- read_tsv(colonData_path)
+rectum_tsv_data <- read_tsv(rectalData_path)
+```
+
+
+```{r data_wrangling, include=FALSE}
+# extract the columns of interest
+colonSubset <- colon_tsv_data[,c("case_id", "case_submitter_id", "project_id", "primary_diagnosis",
+                                 "site_of_resection_or_biopsy", "synchronous_malignancy",
+                                 "tissue_or_organ_of_origin")]
+
+rectalSubset <- rectum_tsv_data[,c("case_id", "case_submitter_id", "project_id", "primary_diagnosis",
+                                 "site_of_resection_or_biopsy", "synchronous_malignancy",
+                                 "tissue_or_organ_of_origin")]
+
+# filter rows with the sublocalizations of interest
+colonSubset <- colonSubset %>%
+  dplyr::filter(str_detect(tissue_or_organ_of_origin,
+                    "Descending colon|Sigmoid colon|Splenic flexure of colon"))
+# write
+write_csv(colonSubset, "filtered_colon_data.csv")
+write_csv(rectalSubset, "filtered_rectum_data.csv")
+
+
+# extract case_submitter_id from the filtered data
+colonCaseIds <- colonSubset$case_submitter_id
+rectumCaseIds <- rectalSubset$case_submitter_id
+# write
+write_csv(as.data.frame(colonCaseIds), "colon_case_submitter_ids.csv")
+write_csv(as.data.frame(rectumCaseIds), "rectum_case_submitter_ids.csv")
+
+
+# print the number of rows processed for verification
+cat("Number of rows in Colon dataset:", nrow(colonSubset), "\n")
+cat("Number of rows in Rectum dataset:", nrow(rectalSubset), "\n")
+cat("Number of Colon CaseID entries saved:", length(colonCaseIds), "\n")
+cat("Number of Rectum CaseID entries saved:", length(rectumCaseIds), "\n")
+```
+
+
+```{r tcgabiolinks, include=FALSE}
+
+# define queries to get the necessary data
+colon_dataQuery <- GDCquery(project = "TCGA-COAD", 
+                  data.category = "Transcriptome Profiling", 
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "STAR - Counts",
+                  access = "open",
+                  data.format = "TSV",
+                  barcode = colonSubset$case_submitter_id)
+
+rectum_dataQuery <- GDCquery(project = "TCGA-READ", 
+                  data.category = "Transcriptome Profiling", 
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "STAR - Counts",
+                  access = "open",
+                  data.format = "TSV",
+                  barcode = rectalSubset$case_submitter_id)
+
+# download
+GDCdownload(colon_dataQuery)
+GDCdownload(rectum_dataQuery)
+
+# prepare the data for downstream analysis
+colonGDC_data <- GDCprepare(colon_dataQuery)
+rectumGDC_data <- GDCprepare(rectum_dataQuery)
+```
+
+
+```{r prepare_GDCdata, include=FALSE}
+
+# make sure the colon and rectum data have the same genes in the same order
+common_genes <- base::intersect(rownames(colonGDC_data), rownames(rectumGDC_data))
+colonGDC_data <- colonGDC_data[common_genes,]
+rectumGDC_data <- rectumGDC_data[common_genes,]
+
+
+# subset data frames
+desc_colon_data <- colonGDC_data[, colData(colonGDC_data)$tissue_or_organ_of_origin == "Descending colon"]
+sig_colon_data <- colonGDC_data[, colData(colonGDC_data)$tissue_or_organ_of_origin == "Sigmoid colon"]
+spl_colon_data <- colonGDC_data[, colData(colonGDC_data)$tissue_or_organ_of_origin == "Splenic flexure of colon"]
+
+
+# preprocess the data (normalization and batch effect correction)
+normalized_rectumData <- TCGAanalyze_Preprocessing(rectumGDC_data)
+normalized_colonData <- TCGAanalyze_Preprocessing(colonGDC_data)
+normalized_desc_colonData <- TCGAanalyze_Preprocessing(desc_colon_data)
+normalized_sig_colonData <- TCGAanalyze_Preprocessing(sig_colon_data)
+normalized_spl_colonData <- TCGAanalyze_Preprocessing(spl_colon_data)
+
+
+# names to be used for comparisons below
+experimental_name1 <- "Colon"
+experimental_name2 <- "Descending Colon"
+experimental_name3 <- "Sigmoid Colon"
+experimental_name4 <- "Splenic Flexure of Colon"
+control_name <- "Rectum"
+```
+
+## Differential Expression Analysis
+  <br />
+  *  [Colon vs. Rectum](#request1) <br>
+(Control level: Rectum)
+
+  *  [Descending Colon vs. Rectum](#request2) <br>
+(Control level: Rectum)
+
+  *  [Sigmoid Colon vs. Rectum](#request3) <br>
+(Control level: Rectum)
+
+  *  [Splenic Flexure of Colon vs. Rectum](#request4) <br>
+(Control level: Rectum)
+
+```{r deseq2_function, include=FALSE}
+
+# define the function for differential expression analysis
+run_DESeq2_analysis <- function(colon_data, colon_label, rectum_data) {
+  # combine colon and rectum data directly
+  combined_counts <- cbind(colon_data, rectum_data)
+  # create metadata
+  sample_info <- data.frame(
+    condition = factor(c(rep(colon_label, ncol(colon_data)), rep("rectum", ncol(rectum_data))))
+  )
+  # create DESeq2 dataset
+  dds <- DESeqDataSetFromMatrix(countData = combined_counts,
+                                colData = sample_info,
+                                design = ~ condition)
+  keep <- rowSums(counts(dds) >= 10) >= 3   # Pre-filtering
+  dds <- dds[keep,]
+  dds <- DESeq(dds)   # Run DESeq2
+  res <- results(dds, contrast = c("condition", colon_label, "rectum")) # Get results
+  # return both the dds object and the results
+  return(list(dds = dds, results = res, sample_info = sample_info))
+}
+
+# apply the function to each comparison and extract the dds objects and results from the list
+res_colon <- run_DESeq2_analysis(normalized_colonData, "Colon", normalized_rectumData)
+dds_colon <- res_colon$dds
+results_colon <- res_colon$results
+sample_info_colon <- res_colon$sample_info
+res_colon_ordered <- results_colon[order(results_colon$padj),]
+res_colon_ordered <- as.data.frame(res_colon_ordered)
+
+res_desc <- run_DESeq2_analysis(normalized_desc_colonData, "Descending_colon", normalized_rectumData)
+dds_desc <- res_desc$dds
+results_desc <- res_desc$results
+sample_info_desc <- res_desc$sample_info
+res_desc_ordered <- results_desc[order(results_desc$padj),]
+res_desc_ordered <- as.data.frame(res_desc_ordered)
+
+res_sig <- run_DESeq2_analysis(normalized_sig_colonData, "Sigmoid_colon", normalized_rectumData)
+dds_sig <- res_sig$dds
+results_sig <- res_sig$results
+sample_info_sig <- res_sig$sample_info
+res_sig_ordered <- results_sig[order(results_sig$padj),]
+res_sig_ordered <- as.data.frame(res_sig_ordered)
+
+res_spl <- run_DESeq2_analysis(normalized_spl_colonData, "Splenic_flexure_of_colon", normalized_rectumData)
+dds_spl <- res_spl$dds
+results_splenic <- res_spl$results
+sample_info_splenic <- res_spl$sample_info
+res_spl_ordered <- results_splenic[order(results_splenic$padj),]
+res_spl_ordered <- as.data.frame(res_spl_ordered)
+
+
+# grab the significant values for each "results" df.
+gen_sigDFs <- function(res_df, sig = "padj", p = 0.05, lfc = 1){
+  res_df %>% 
+    dplyr::filter((eval(as.symbol(sig)) < p & log2FoldChange > lfc) | 
+                  (eval(as.symbol(sig)) < p & log2FoldChange < -lfc))
+}
+
+# generate significant dataframes for each comp.
+colon_sigs <- gen_sigDFs(res_colon_ordered)
+desc_sigs <- gen_sigDFs(res_desc_ordered)
+sig_sigs <- gen_sigDFs(res_sig_ordered)
+spl_sigs <- gen_sigDFs(res_spl_ordered)
+
+# save the results to a CSV file
+out_dir <- "./results/"
+# create the directory if it does not exist
+if (!dir.exists(out_dir)) {
+    dir.create(out_dir, recursive = TRUE)
+}
+write.csv(as.data.frame(res_colon_ordered), str_c(out_dir, "DESeq2_results_colon_vs_rectum", ".csv"))
+write.csv(as.data.frame(res_desc_ordered), str_c(out_dir, "DESeq2_results_Descending_colon_vs_rectum", ".csv"))
+write.csv(as.data.frame(res_sig_ordered), str_c(out_dir, "DESeq2_results_Sigmoid_colon_vs_rectum", ".csv"))
+write.csv(as.data.frame(res_spl_ordered), str_c(out_dir, "DESeq2_results_Splenic_Flx_colon_vs_rectum", ".csv"))
+
+```
+
+## Visualization
+
+```{r annotation, include=FALSE}
+
+# function to annotate DESeq2 results
+annotate_DESeq2_results <- function(res, OrgDb) {
+  # convert rownames (gene IDs) to a character vector
+  gene_ids <- rownames(res)
+  # annotate using AnnotationDbi
+  annotations <- AnnotationDbi::select(OrgDb, keys = gene_ids, keytype = "ENSEMBL", 
+                                       columns = c("SYMBOL", "GENENAME"))
+  # merge annotations with DESeq2 results
+  annotated_res <- merge(as.data.frame(res), annotations, by.x = "row.names", by.y = "ENSEMBL", all.x = TRUE)
+  # rename columns for clarity
+  colnames(annotated_res)[1] <- "ENSEMBL_ID"
+  return(annotated_res)
+}
+
+# This was performed in order to avoid the annotation error where ensemble IDs are not recognized.
+# function to clean Ensembl IDs
+clean_ensembl_ids <- function(ensembl_ids) {
+  # use sub() to remove everything after and including the "."
+  clean_ids <- sub("\\..*", "", ensembl_ids)
+  return(clean_ids)
+}
+
+# clean the Ensembl IDs in the results data frame
+cleaned_ids <- clean_ensembl_ids(rownames(res_colon_ordered))
+rownames(res_colon_ordered) <- cleaned_ids
+
+cleaned_desc_ids <- clean_ensembl_ids(rownames(res_desc_ordered))
+rownames(res_desc_ordered) <- cleaned_desc_ids
+
+cleaned_sig_ids <- clean_ensembl_ids(rownames(res_sig_ordered))
+rownames(res_sig_ordered) <- cleaned_sig_ids
+
+cleaned_spl_ids <- clean_ensembl_ids(rownames(res_spl_ordered))
+rownames(res_spl_ordered) <- cleaned_spl_ids
+
+
+
+# apply the function to each DESeq2 data frame
+annotated_res_colon <- annotate_DESeq2_results(res_colon_ordered, org.Hs.eg.db)
+annotated_res_desc <- annotate_DESeq2_results(res_desc_ordered, org.Hs.eg.db)
+annotated_res_sig <- annotate_DESeq2_results(res_sig_ordered, org.Hs.eg.db)
+annotated_res_spl <- annotate_DESeq2_results(res_spl_ordered, org.Hs.eg.db)
+
+# write results
+write.csv(as.data.frame(annotated_res_colon),
+          str_c(out_dir, "DESeq2_results_annotated_colon_vs_rectum", ".csv"))
+write.csv(as.data.frame(annotated_res_desc),
+          str_c(out_dir, "DESeq2_results_annotated_Descending_colon_vs_rectum", ".csv"))
+write.csv(as.data.frame(annotated_res_sig),
+          str_c(out_dir, "DESeq2_results_annotated_Sigmoid_colon_vs_rectum", ".csv"))
+write.csv(as.data.frame(annotated_res_spl),
+          str_c(out_dir, "DESeq2_results_annotated_Splenic_Flx_colon_vs_rectum", ".csv"))
+
+```
+
+**Comparision 1**
+**Treatment**: `r experimental_name1` vs. **Control**: `r control_name`
+
+```{r dt_comp1}
+
+# this generates a datatable of the top 20 DEGs 
+annotated_res_colon %>% 
+  dplyr::filter(log2FoldChange >1 & padj < 0.05) %>%
+  head(n=20) %>%
+  dplyr::select("SYMBOL", "GENENAME", "padj", "log2FoldChange") %>% 
+  dplyr::arrange(desc(log2FoldChange)) %>% 
+  datatable
+```
+
+**Comparision 2**
+**Treatment**: `r experimental_name2` vs. **Control**: `r control_name`
+
+```{r dt_comp2}
+
+# this generates a datatable of the top 20 DEGs 
+annotated_res_desc %>% 
+  dplyr::filter(log2FoldChange >1 & padj < 0.05) %>%
+  head(n=20) %>%
+  dplyr::select("SYMBOL", "GENENAME", "padj", "log2FoldChange") %>% 
+  dplyr::arrange(desc(log2FoldChange)) %>% 
+  datatable
+```
+
+
+**Comparision 3**
+**Treatment**: `r experimental_name3` vs. **Control**: `r control_name`
+
+```{r dt_comp3}
+
+# this generates a datatable of the top 20 DEGs 
+annotated_res_sig %>% 
+  dplyr::filter(log2FoldChange >1 & padj < 0.05) %>%
+  head(n=20) %>%
+  dplyr::select("SYMBOL", "GENENAME", "padj", "log2FoldChange") %>% 
+  dplyr::arrange(desc(log2FoldChange)) %>% 
+  datatable
+```
+
+
+**Comparision 4**
+**Treatment**: `r experimental_name4` vs. **Control**: `r control_name`
+
+```{r dt_comp4}
+
+# this generates a datatable of the top 20 DEGs 
+annotated_res_spl %>% 
+  dplyr::filter(log2FoldChange >1 & padj < 0.05) %>%
+  head(n=20) %>%
+  dplyr::select("SYMBOL", "GENENAME", "padj", "log2FoldChange") %>% 
+  dplyr::arrange(desc(log2FoldChange)) %>% 
+  datatable
+```
+
+
+### PCA
+
+**Expectation:** We would expect to see samples that are similar to
+each other cluster together.
+
+```{r pca_plotly, message=FALSE, warning=FALSE}
+# prefer
+conflicts_prefer(plotly::layout)
+
+# define the PCA function
+gen_pca <- function(dds, exp_name, out_dir, transformation = c("vst", "rlog")) {
+  
+  # validate transformation option
+  transformation <- match.arg(transformation)
+  
+  # create a directory for the output if it doesn't exist
+  if (!dir.exists(out_dir)) {
+    dir.create(out_dir, recursive = TRUE)
+  }
+  
+  # perform transformation
+  if (transformation == "vst") {
+    transformed_data <- vst(dds, blind=FALSE)
+  } else {
+    transformed_data <- rlog(dds, blind=FALSE)
+  }
+  
+  # perform PCA
+  pca_data <- plotPCA(transformed_data, intgroup=c("condition"), returnData=TRUE)
+  percentVar <- round(100 * attr(pca_data, "percentVar"))
+  
+  # create PCA plot using plotly
+  fig <- plot_ly(pca_data, x = ~PC1, y = ~PC2, color = ~condition,
+                 colors = c('steelblue', 'firebrick'),
+                 type = 'scatter', mode = 'markers',
+                 span = 0.3,
+                 alpha = 1.3,
+                 alpha_stroke = .3) %>%
+    layout(
+      legend = list(title = list(text = 'Group')),
+      plot_bgcolor = '#e5ecf6',
+      xaxis = list(
+        title = paste("PC1 - ", percentVar[1], "% variance", sep = ""),
+        zerolinecolor = "#ffff",
+        zerolinewidth = 2,
+        gridcolor = '#ffff'
+      ),
+      yaxis = list(
+        title = paste("PC2 - ", percentVar[2], "% variance", sep = ""),
+        zerolinecolor = "#ffff",
+        zerolinewidth = 2,
+        gridcolor = '#ffff'
+      )
+    )
+  
+  # save the plot as PDF
+  out_file <- file.path(out_dir, paste0(exp_name, "_PCA_plot.pdf"))
+  fig %>% plotly::save_image(file = out_file, format = "pdf")
+  fig
+}
+```
+
+
+```{r colon_pca, message=FALSE, warning=FALSE}
+# define output directory 
+pca_dir <- "./figures/pca_plots/"
+
+# generate PCA plot
+gen_pca(dds_colon, "Colon", pca_dir)
+```
+
+
+```{r desc_pca, message=FALSE, warning=FALSE}
+# generate PCA plot
+gen_pca(dds_desc, "Descending Colon", pca_dir)
+```
+
+
+```{r sig_pca, message=FALSE, warning=FALSE}
+# generate PCA plot
+gen_pca(dds_sig, "Sigmoid Colon", pca_dir)
+```
+
+
+```{r spl_pca, message=FALSE, warning=FALSE}
+# generate PCA plot
+gen_pca(dds_spl, "Splenic Flexure of Colon", pca_dir)
+```
+
+
+
+#### 3D PCA
+
+```{r pca3D, message=FALSE, warning=FALSE}
+# define the function
+gen_3d_pca <- function(dds, transformation = c("vst", "rlog"), intgroup = "condition") {
+  
+  # validate transformation option
+  transformation <- match.arg(transformation)
+  
+  # perform transformation
+  if (transformation == "vst") {
+    transformed_data <- vst(dds, blind=FALSE)
+  } else {
+    transformed_data <- rlog(dds, blind=FALSE)
+  }
+  
+  # extract normalized counts
+  norm_counts <- assay(transformed_data)
+  
+  # perform PCA
+  pca_res <- prcomp(t(norm_counts))
+  percentVar <- round(100 * (pca_res$sdev^2 / sum(pca_res$sdev^2)))
+  
+  # prepare PCA data frame
+  pca_df <- data.frame(PC1 = pca_res$x[, 1], 
+                       PC2 = pca_res$x[, 2],
+                       PC3 = pca_res$x[, 3],
+                       Group = colData(transformed_data)[[intgroup]])
+  
+  # create 3D PCA plot using plotly
+  fig3d <- plot_ly(pca_df, 
+                 x = ~PC1, y = ~PC2, z = ~PC3, 
+                 color = ~Group,
+                 colors = c('steelblue', 'firebrick'),
+                 type = 'scatter3d', mode = 'markers',
+                 span = 0.3, alpha = 1.3, alpha_stroke = .3) %>%
+    layout(
+      scene = list(
+        xaxis = list(title = paste("PC1 - ", percentVar[1], "% variance", sep = "")),
+        yaxis = list(title = paste("PC2 - ", percentVar[2], "% variance", sep = "")),
+        zaxis = list(title = paste("PC3 - ", percentVar[3], "% variance", sep = "")),
+        bgcolor = '#e5ecf6'
+      ),
+      legend = list(title = list(text = 'Group'))
+    )
+  
+  return(fig3d)
+}
+```
+
+**Comparision 1**
+**Treatment**: `r experimental_name1` vs. **Control**: `r control_name`
+
+``` {r colon_3dplot, message=FALSE, warning=FALSE}
+# generate 3D PCA plot
+fig3D_colon <- gen_3d_pca(dds_colon, transformation = "vst", intgroup = "condition")
+fig3D_colon
+```
+
+**Comparision 2**
+**Treatment**: `r experimental_name2` vs. **Control**: `r control_name`
+``` {r desc_3dplot, message=FALSE, warning=FALSE}
+# generate 3D PCA plot
+fig3D_desc <- gen_3d_pca(dds_desc, transformation = "vst", intgroup = "condition")
+fig3D_desc
+```
+
+**Comparision 3**
+**Treatment**: `r experimental_name3` vs. **Control**: `r control_name`
+``` {r sig_3dplot, message=FALSE, warning=FALSE}
+# generate 3D PCA plot
+fig3D_sig <- gen_3d_pca(dds_sig, transformation = "vst", intgroup = "condition")
+fig3D_sig
+```
+
+**Comparision 4**
+**Treatment**: `r experimental_name4` vs. **Control**: `r control_name`
+``` {r spl_3dplot, message=FALSE, warning=FALSE}
+# generate 3D PCA plot
+fig3D_spl <- gen_3d_pca(dds_spl, transformation = "vst", intgroup = "condition")
+fig3D_spl
+```
+
+
+
+### Volcano plot
+
+```{r imp_variables}
+# #TODO: set significance cut off 
+p = 0.05 # Standard
+lfc = 0.58 # (1.5-fold)
+sig = "padj" # choose fdr or PValue (adjusted P-value)
+```
+
+**Volcano**: Each dot represents a change in gene expression. X-axis:
+log2 fold-change of expression between treatment compared to the control
+plotted against the -log10(`r sig`). The red line indicates
+the p-value \< 0.05. Every point (gene) above that threshold appears to
+have statistically significant changes between the two conditions.
+
+Vertical lines indicate 1.5 fold change. Genes highlighted in RED are
+up-regulated in the Treatment compared to the control. Genes
+highlighted in BLUE are down-regulated in the Treatment compared
+to the control. Genes in gray, do not meet the thresholds for both logFC
+and p-value.
+
+```{r volcanoPlot_function, message=FALSE, warning=FALSE}
+# function to generate and save volcano plot
+gen_volcano <- function(data, experimental_name, control_name,
+                        p = 0.05, lfc = 0.58, sig = "padj", out_dir = "./figures/volcano/") {
+  
+  # ensure output directory exists
+  if (!dir.exists(out_dir)) {
+    dir.create(out_dir, recursive = TRUE)
+  }
+  
+  # generate the volcano plot
+  vol <- data %>% 
+    as.data.frame() %>%
+    mutate(color_tag = ifelse(eval(as.symbol(sig)) < p & log2FoldChange < -lfc, "Under expressed",
+                              ifelse(eval(as.symbol(sig)) < p & log2FoldChange > lfc, "Over expressed", NA))) %>%
+    mutate(highlight = ifelse(pvalue <= p & abs(log2FoldChange) >= lfc, SYMBOL, NA)) %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(eval(as.symbol(sig))), color = color_tag,
+               label = ifelse(highlight == TRUE, SYMBOL, NA))) +
+    geom_point(alpha = 0.5) +
+    theme_minimal() +
+    geom_label_repel(aes(label = highlight)) +
+    scale_color_manual(values = c("firebrick", "steelblue")) +
+    geom_hline(yintercept = -log10(p), col = "red", linetype = 2) +
+    geom_vline(xintercept = -lfc) +
+    geom_vline(xintercept = lfc) +
+    theme(legend.title = element_blank()) +
+    xlab("Log2 Fold-Change (FC)") +
+    ylab(paste0("-log10(", sig, ")")) +
+    ggtitle(paste0("Differentially expressed genes - ", experimental_name, " vs. ", control_name, " (control)"))
+  
+  # define the file name
+  file_name <- paste0(out_dir, "/", experimental_name, "_vs_", control_name, "_volcano_plot.png")
+  
+  # save the plot
+  ggsave(file_name, width = 17, height = 13, plot = vol, dpi = 300, bg = "white")
+  vol
+}
+```
+
+
+**Comparision 1**
+**Treatment**: `r experimental_name1` vs. **Control**: `r control_name`
+```{r vol1, message=FALSE, warning=FALSE}
+# volcano dir
+vol_dir <- "./figures/volcano/"
+
+# generate volcano plot
+gen_volcano(annotated_res_colon, experimental_name1, control_name, out_dir = vol_dir)
+```
+
+**Comparision 2**
+**Treatment**: `r experimental_name2` vs. **Control**: `r control_name`
+```{r vol2, message=FALSE, warning=FALSE}
+# generate volcano plot
+gen_volcano(annotated_res_desc, experimental_name2, control_name, out_dir = vol_dir)
+```
+
+**Comparision 3**
+**Treatment**: `r experimental_name3` vs. **Control**: `r control_name`
+```{r vol3, message=FALSE, warning=FALSE}
+# generate volcano plot
+gen_volcano(annotated_res_sig, experimental_name3, control_name, out_dir = vol_dir)
+```
+
+**Comparision 4**
+**Treatment**: `r experimental_name4` vs. **Control**: `r control_name`
+```{r vol4, message=FALSE, warning=FALSE}
+# generate volcano plot
+gen_volcano(annotated_res_spl, experimental_name4, control_name, out_dir = vol_dir)
+```
+
+
+
+### Heatmap
+
+A heatmap of zscore normalized read counts data for each
+comparison. The x-axis are samples, the y-axis are genes. The red color
+represents the magnitude of standard deviations above the mean for each
+read count (i.e., higher expression), and the blue is the magnitude of
+standard deviations below the mean (i.e., lower expression). White
+indicates that a read count is close to the mean. The dendrogram is
+clustering by samples and by RNA expression.
+
+```{r heatmap_function, message=FALSE, warning=FALSE}
+# define the heatmap function
+generate_heatmap <- function(dds, sig_df, baseMean=100, l2fc=.58, column_title) {
+  
+  # heatmaps were saved manually after changing the basemean and lfc values below (due to less genes that pass
+  # the threshold in some data frames
+  sig_df <- sig_df[(sig_df$baseMean > baseMean) & (abs(sig_df$log2FoldChange) > l2fc),]
+  
+  # Subset data for values under a threshold
+  mat <- counts(dds, normalized = T)[rownames(sig_df),]
+  # Adds a little noise to each element to avoid clustering failure on zero variance rows
+  mat <- jitter(mat, factor = 1, amount = 0.00001)
+  # grab the colnames for renaming the zscore columns later 
+  mat_colnames <- colnames(mat)
+  
+  # generate zscores
+  mat_z <- t(apply(mat, 1, scale))
+  colnames(mat_z) <- mat_colnames
+  
+  # set the color palette
+  col <- colorRampPalette(c("blue", "white", "firebrick"))(n = 20)
+  
+  Heatmap(mat_z, cluster_rows = T, cluster_columns = T, col = col, #column_labels = colnames(mat_z),
+          name = "Z-score", show_column_names = F, show_column_dend = F,
+          column_title = column_title)
+}
+```
+
+
+```{r heatmap1, message=FALSE, warning=FALSE}
+# generate heatmap
+colon_heatmap <- generate_heatmap(dds_colon, colon_sigs, baseMean=75,
+                                  column_title = "Heatmap of most significant genes for all Colon Patients")
+colon_heatmap
+```
+
+```{r heatmap2, message=FALSE, warning=FALSE}
+# generate heatmap
+# the baseMean threshold is high here to include only the top 15-20 genes.
+desc_heatmap <- generate_heatmap(dds_desc, desc_sigs, baseMean = 550, 
+                                 column_title = "Heatmap of most significant genes for Descending Colon Patients")
+desc_heatmap
+```
+
+```{r heatmap3, message=FALSE, warning=FALSE}
+# generate heatmap
+sigm_heatmap <- generate_heatmap(dds_sig, sig_sigs, baseMean=75,
+                                 column_title = "Heatmap of most significant genes for Sigmoid Colon Patients")
+sigm_heatmap
+```
+
+```{r heatmap4, message=FALSE, warning=FALSE}
+# generate heatmap
+spl_heatmap <- generate_heatmap(dds_spl, spl_sigs,
+                                column_title = "Heatmap of most significant genes for Splenic Flexure of Colon Patients")
+
+spl_heatmap
+```
+
+
+
+# Package Citations
+```{r citations, message=FALSE, warning=FALSE}
+library(grateful)
+
+pkgs <- cite_packages(output = "table", out.dir = ".")
+knitr::kable(pkgs)
+```
