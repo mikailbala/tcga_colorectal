@@ -15,8 +15,6 @@ editor_options:
 # Background
 
 PI: Dr. Vasily Yakovlev <br />
-Contact: <vasily.yakovlev@vcuhealth.org>  <br />
-  <br />
 
 The PI is interested in exploratory analysis and would like to find some signature or prediction biomarker \
 that could help predict the survival rate. The initial focus is on the Differential Expression analysis of \
